@@ -15,12 +15,18 @@ from yaml import safe_load, SafeLoader, add_constructor, Node
 
 class YamlFormatter(Formatter):
     def vformat(self, format_string, args, kwargs):
+        i = 0
         input = format_string
         # format while protecting any escaped braces
         while (formatted := super().vformat(protected := input.replace('{{', '{{{{').replace('}}', '}}}}'), args, kwargs)) != protected:
+            if i == 10:
+                raise ValueError("possible self-reference in format; too many nested references, stopped after 10")
+
             only_escaped_braces_left = formatted == input
             if only_escaped_braces_left:
                 return super().vformat(formatted, args, kwargs)  # one last time
+
+            i += 1
             input = formatted
         return formatted
 
