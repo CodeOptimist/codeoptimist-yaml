@@ -11,9 +11,18 @@ from yaml import safe_load, SafeLoader, add_constructor
 class YamlFormatter(Formatter):
     def vformat(self, format_string, args, kwargs):
         input = format_string
-        while (formatted := super().vformat(input, args, kwargs)) != input:
+        # format while protecting any escaped braces
+        while (formatted := super().vformat(protected := input.replace('{{', '{{{{').replace('}}', '}}}}'), args, kwargs)) != protected:
+            only_escaped_braces_left = formatted == input
+            if only_escaped_braces_left:
+                return super().vformat(formatted, args, kwargs)  # one last time
             input = formatted
         return formatted
+
+    def convert_field(self, value, conversion):
+        if conversion == 'e':
+            return str(value).replace('{', '{{').replace('}', '}}')
+        return super().convert_field(value, conversion)
 
     def get_value(self, key, args, kwargs):
         if isinstance(key, str):
