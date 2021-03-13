@@ -1,4 +1,6 @@
 # Copyright (C) 2021  Christopher S. Galpin.  See /NOTICE.
+import _string
+import re
 from operator import attrgetter
 from pathlib import Path
 from string import Formatter
@@ -18,6 +20,32 @@ class YamlFormatter(Formatter):
                 return super().vformat(formatted, args, kwargs)  # one last time
             input = formatted
         return formatted
+
+    def get_field(self, field_name_, args, kwargs):
+        if not (m := re.match(r'(.+?)(\??[=+]|\?$)(.*)', field_name_, re.DOTALL)):
+            return super().get_field(field_name_, args, kwargs)
+
+        field_name, operation, text = m.groups()
+        try:
+            obj, used_key = super().get_field(field_name, args, kwargs)
+        except KeyError:
+            if not operation.startswith('?'):
+                raise
+            # consider it used for check_unused_args(), as it's intentionally optional
+            used_key = _string.formatter_field_name_split(field_name)[0]
+            return '', used_key
+
+        finished_with_basic = operation == '?'
+        if obj is None or finished_with_basic:
+            return obj, used_key
+
+        # obj exists, now do something special
+        replaced = text.replace('__value__', obj)
+        if operation.endswith('='):
+            return replaced, used_key
+        if operation.endswith('+'):
+            return obj + replaced, used_key
+        raise AssertionError
 
     def convert_field(self, value, conversion):
         if conversion == 'e':
