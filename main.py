@@ -1,13 +1,16 @@
 # Copyright (C) 2021  Christopher S. Galpin.  See /NOTICE.
 import _string
 import re
+from dataclasses import dataclass
+from itertools import zip_longest
 from operator import attrgetter
 from pathlib import Path
 from string import Formatter
 from typing import Any
+from typing import List
 
 # noinspection PyProtectedMember
-from yaml import safe_load, SafeLoader, add_constructor
+from yaml import safe_load, SafeLoader, add_constructor, Node
 
 
 class YamlFormatter(Formatter):
@@ -87,12 +90,79 @@ class AttrList(list):
         return attr_wrap(super().__getitem__(item))
 
 
+@dataclass
+class InsertInfo:
+    sequence: list
+    replace_format: str = None
+    positions: List[int] = None
+
+    @staticmethod
+    def insert_constructor(loader: SafeLoader, node: Node) -> list:
+        info = InsertInfo(**loader.construct_mapping(node.value[0], deep=True))
+        current_list: List[Any] = info.sequence  # already constructed
+        input_list: List[Any] = [loader.construct_object(n, deep=True) for n in node.value[1:]]
+        if info.replace_format is None and info.positions is None:
+            return current_list + input_list
+
+        def item_id(item: Any, idx: int) -> int:
+            return idx if info.replace_format is None else formatter.format(info.replace_format, l=item)
+
+        # ordered
+        result_dict = {item_id(item, idx): item for idx, item in enumerate(current_list)}
+        input_dict = {item_id(item, idx + len(result_dict)): item for idx, item in enumerate(input_list)}
+
+        to_pos = {}
+        to_end = []
+        for input_pos, (input_id, input_item) in zip_longest(info.positions or [], input_dict.items()):
+            if input_pos is not None:
+                result_dict.pop(input_id, None)
+                to_pos[input_pos] = input_item
+            elif input_id in result_dict:
+                result_dict[input_id] = input_item
+            else:
+                to_end.append(input_item)
+
+        result_list = list(result_dict.values()) + to_end
+        for item in sorted(to_pos):
+            result_list.insert(item, to_pos[item])
+        return result_list
+
+
+@dataclass
+class JoinInfo:
+    separator: str
+    sequence: list
+    format: str = r'{l}'
+
+    @staticmethod
+    def join_constructor(loader: SafeLoader, node: Node) -> str:
+        info = JoinInfo(**loader.construct_mapping(node, deep=True))
+        return info.separator.join(value for item in info.sequence if (value := formatter.format(info.format, l=item)))
+
+
+def merge_constructor(loader: SafeLoader, node: Node) -> dict:
+    input_dict: dict = loader.construct_mapping(node, deep=True)
+    base_dict = input_dict.pop('<')
+    merged = {**base_dict, **input_dict}
+    return merged
+
+
+def concat_constructor(loader: SafeLoader, node: Node) -> list:
+    input_list: List[list] = loader.construct_sequence(node, deep=True)
+    result = [item for list_ in input_list for item in list_]
+    return result
+
+
 # processed later
 class Steam2Xml(str):
     pass
 
 
 _data: AttrDict
+add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
+add_constructor('!join', JoinInfo.join_constructor, Loader=SafeLoader)
+add_constructor('!merge', merge_constructor, Loader=SafeLoader)
+add_constructor('!concat', concat_constructor, Loader=SafeLoader)
 add_constructor('!parent', lambda l, n: attrgetter(l.construct_scalar(n))(_data), Loader=SafeLoader)
 add_constructor('!steam2xml', lambda l, n: Steam2Xml(l.construct_scalar(n)), Loader=SafeLoader)
 formatter = YamlFormatter()
