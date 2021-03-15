@@ -65,7 +65,7 @@ class YamlFormatter(Formatter):
         if isinstance(key, str):
             kwargs.setdefault('g', _data)
             try:
-                return kwargs[key]
+                return attrgetter(key)(AttrDict(kwargs))
             except KeyError:
                 if kwargs.get('l') is None:
                     return attrgetter(key)(_data)
