@@ -144,21 +144,16 @@ class InsertInfo:
         return result_list
 
 
-@dataclass
-class JoinInfo:
-    separator: str
-    sequence: list
-    format: str = r'{l}'
+def join_constructor(loader: SafeLoader, node: Node) -> str:
+    info = loader.construct_sequence(node, deep=True)
+    separator, input_list = info[0], info[1]
+    format = info[2] if len(info) == 3 else '{l}'
 
-    @staticmethod
-    def join_constructor(loader: SafeLoader, node: Node) -> str:
-        info = JoinInfo(**loader.construct_mapping(node, deep=True))
+    def flatten(l: list) -> list:
+        return sum(map(flatten, l), []) if isinstance(l, list) else [l]
 
-        def flatten(l: list) -> list:
-            return sum(map(flatten, l), []) if isinstance(l, list) else [l]
-
-        info.sequence = flatten(info.sequence)
-        return info.separator.join(value for item in info.sequence if (value := formatter.format(info.format, l=item)))
+    input_list = flatten(input_list)
+    return separator.join(value for item in input_list if (value := formatter.format(format, l=item)))
 
 
 def merge_constructor(loader: SafeLoader, node: Node) -> dict:
@@ -198,7 +193,7 @@ class Steam2Xml(str):
 
 _data: AttrDict
 add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
-add_constructor('!join', JoinInfo.join_constructor, Loader=SafeLoader)
+add_constructor('!join', join_constructor, Loader=SafeLoader)
 add_constructor('!merge', merge_constructor, Loader=SafeLoader)
 add_constructor('!concat', concat_constructor, Loader=SafeLoader)
 add_constructor('!each', each_constructor, Loader=SafeLoader)
