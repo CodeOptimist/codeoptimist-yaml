@@ -1,5 +1,6 @@
 # Copyright (C) 2021  Christopher S. Galpin.  See /NOTICE.
 import _string
+import html
 import re
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -92,6 +93,15 @@ class AttrDict(dict):
 
 
 class AttrList(list):
+    def __getattr__(self, item: Any):
+        key, is_find, value = item.partition('=')
+        key, value = html.unescape(key), html.unescape(value)
+
+        if is_find:
+            result = next((item for item in self if item[key] == value), None)
+            return attr_wrap(result)
+        return attr_wrap(self[item])
+
     def __getitem__(self, item: Any):
         return attr_wrap(super().__getitem__(item))
 
@@ -143,6 +153,11 @@ class JoinInfo:
     @staticmethod
     def join_constructor(loader: SafeLoader, node: Node) -> str:
         info = JoinInfo(**loader.construct_mapping(node, deep=True))
+
+        def flatten(l: list) -> list:
+            return sum(map(flatten, l), []) if isinstance(l, list) else [l]
+
+        info.sequence = flatten(info.sequence)
         return info.separator.join(value for item in info.sequence if (value := formatter.format(info.format, l=item)))
 
 
@@ -159,6 +174,23 @@ def concat_constructor(loader: SafeLoader, node: Node) -> list:
     return result
 
 
+def each_constructor(loader: SafeLoader, node: Node) -> list:
+    input_list, attr, is_required = loader.construct_sequence(node, deep=True)
+    result = []
+    for item in input_list:
+        try:
+            result.append(attrgetter(attr)(attr_wrap(item)))
+        except KeyError:
+            if is_required:
+                raise
+    return result
+
+
+def get_constructor(loader: SafeLoader, node: Node):
+    input_list, attr = loader.construct_sequence(node, deep=True)
+    return attrgetter(attr)(attr_wrap(input_list))
+
+
 # processed later
 class Steam2Xml(str):
     pass
@@ -169,6 +201,8 @@ add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
 add_constructor('!join', JoinInfo.join_constructor, Loader=SafeLoader)
 add_constructor('!merge', merge_constructor, Loader=SafeLoader)
 add_constructor('!concat', concat_constructor, Loader=SafeLoader)
+add_constructor('!each', each_constructor, Loader=SafeLoader)
+add_constructor('!get', get_constructor, Loader=SafeLoader)
 add_constructor('!parent', lambda l, n: attrgetter(l.construct_scalar(n))(_data), Loader=SafeLoader)
 add_constructor('!steam2xml', lambda l, n: Steam2Xml(l.construct_scalar(n)), Loader=SafeLoader)
 formatter = YamlFormatter()
