@@ -11,7 +11,7 @@ from typing import Any
 from typing import List
 
 # noinspection PyProtectedMember
-from yaml import safe_load, SafeLoader, add_constructor, Node
+from yaml import safe_load, SafeLoader, add_constructor, Node, ScalarNode
 
 
 class YamlFormatter(Formatter):
@@ -114,7 +114,10 @@ class InsertInfo:
 
     @staticmethod
     def insert_constructor(loader: SafeLoader, node: Node) -> list:
-        info = InsertInfo(**loader.construct_mapping(node.value[0], deep=True))
+        if isinstance(node.value[0], ScalarNode):
+            info = InsertInfo(sequence=loader.construct_object(node.value[0], deep=True))
+        else:
+            info = InsertInfo(*loader.construct_sequence(node.value[0], deep=True))
         current_list: List[Any] = info.sequence  # already constructed
         input_list: List[Any] = [loader.construct_object(n, deep=True) for n in node.value[1:]]
         if info.replace_format is None and info.positions is None:
