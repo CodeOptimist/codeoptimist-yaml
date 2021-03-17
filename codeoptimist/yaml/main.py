@@ -7,11 +7,9 @@ from itertools import zip_longest
 from operator import attrgetter
 from pathlib import Path
 from string import Formatter
-from typing import Any
-from typing import List
+from typing import Any, List
 
-# noinspection PyProtectedMember
-from yaml import safe_load, SafeLoader, add_constructor, Node, ScalarNode
+from yaml import Node, SafeLoader, ScalarNode, add_constructor, safe_load
 
 
 class YamlFormatter(Formatter):
@@ -189,21 +187,20 @@ def get_constructor(loader: SafeLoader, node: Node):
     return attrgetter(attr)(attr_wrap(input_list))
 
 
-# processed later
-class Steam2Xml(str):
-    pass
+def parent_constructor(loader: SafeLoader, node: Node):
+    result = attrgetter(loader.construct_scalar(node))(_data)
+    return result
 
 
-_data: AttrDict
+_data = AttrDict()
+formatter = YamlFormatter()
 add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
 add_constructor('!join', join_constructor, Loader=SafeLoader)
 add_constructor('!merge', merge_constructor, Loader=SafeLoader)
 add_constructor('!concat', concat_constructor, Loader=SafeLoader)
 add_constructor('!each', each_constructor, Loader=SafeLoader)
 add_constructor('!get', get_constructor, Loader=SafeLoader)
-add_constructor('!parent', lambda l, n: attrgetter(l.construct_scalar(n))(_data), Loader=SafeLoader)
-add_constructor('!steam2xml', lambda l, n: Steam2Xml(l.construct_scalar(n)), Loader=SafeLoader)
-formatter = YamlFormatter()
+add_constructor('!parent', parent_constructor, Loader=SafeLoader)
 
 
 def load(yaml_path: Path):

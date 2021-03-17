@@ -1,0 +1,1 @@
+See *Advanced Examples* of https://github.com/CodeOptimist/rimworld-mod-description-tool.
