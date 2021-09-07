@@ -15,19 +15,48 @@ from yaml import Node, SafeLoader, ScalarNode, add_constructor, safe_load
 class YamlFormatter(Formatter):
     def vformat(self, format_string, args, kwargs):
         i = 0
-        input = format_string
-        # format while protecting any escaped braces
-        while (formatted := super().vformat(protected := input.replace('{{', '{{{{').replace('}}', '}}}}'), args, kwargs)) != protected:
+        while True:
+            i += 1
             if i == 10:
                 raise ValueError("possible self-reference in format; too many nested references, stopped after 10")
 
-            only_escaped_braces_left = formatted == input
-            if only_escaped_braces_left:
-                return super().vformat(formatted, args, kwargs)  # one last time
+            # can't be any inner braces, not even escaped as {{ or }}
+            formatted = re.sub(r'{{(.*?)}}', r'&#123;&#123;\1&#125;&#125;', format_string)
 
-            i += 1
-            input = formatted
-        return formatted
+            def escape_inner_fields(text):
+                def get_fields(text_):
+                    stack = []
+                    for m in re.finditer(r'[{}]', text_):
+                        pos = m.start()
+                        if text_[pos] == '{':
+                            stack.append(pos)
+                        elif text_[pos] == '}':
+                            prev_pos = stack.pop()
+                            yield prev_pos, pos + 1, len(stack)
+
+                adjustment = 0  # keep iterator working after substitutions
+                for open_pos, close_pos, depth in get_fields(text):
+                    open_pos += adjustment
+                    close_pos += adjustment
+
+                    if depth > 0:  # leave the outermost field
+                        inner_field = text[open_pos:close_pos]
+                        escaped_field = re.sub(r'{(.*?)}', r'&#123;\1&#125;', inner_field)
+                        text = text[:open_pos] + escaped_field + text[close_pos:]
+                        adjustment += len(escaped_field) - len(inner_field)
+                return text
+
+            # leave outermost braces to evaluate those fields
+            formatted = escape_inner_fields(formatted)
+            formatted = super().vformat(formatted, args, kwargs)
+
+            # restore unevaluated fields for next loop
+            while (new_formatted := re.sub(r'&#123;(.*?)&#125;', r'{\1}', formatted)) != formatted:
+                formatted = new_formatted
+
+            if formatted == format_string:
+                return re.sub(r'{{(.*?)}}', r'{\1}', html.unescape(formatted))
+            format_string = formatted
 
     def get_field(self, field_name_, args, kwargs):
         if not (m := re.match(r'(.+?)(\??[=+]|\?$)(.*)', field_name_, re.DOTALL)):
@@ -48,7 +77,7 @@ class YamlFormatter(Formatter):
             return obj, used_key
 
         # obj exists, now do something special
-        replaced = text.replace('__value__', obj)
+        replaced = text.replace('__value__', str(obj))
         if operation.endswith('='):
             return replaced, used_key
         if operation.endswith('+'):
