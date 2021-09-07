@@ -141,16 +141,19 @@ class InsertInfo:
 
     @staticmethod
     def insert_constructor(loader: SafeLoader, node: Node) -> list:
+        # short form, just give the target sequence
         if isinstance(node.value[0], ScalarNode):
             info = InsertInfo(sequence=loader.construct_object(node.value[0], deep=True))
-        else:
+        else:  # give all parameters in a sequence of our own
             info = InsertInfo(*loader.construct_sequence(node.value[0], deep=True))
         current_list: List[Any] = info.sequence  # already constructed
+
         input_list: List[Any] = [loader.construct_object(n, deep=True) for n in node.value[1:]]
         if info.replace_format is None and info.positions is None:
             return current_list + input_list
 
         def item_id(item: Any, idx: int) -> int:
+            # since info.sequence is constructed it's fine to use formatter.format() on it; mappings will exist
             return idx if info.replace_format is None else formatter.format(info.replace_format, l=item)
 
         # ordered
@@ -185,13 +188,13 @@ def split_constructor(loader: SafeLoader, node: Node):
 def join_constructor(loader: SafeLoader, node: Node) -> str:
     info = loader.construct_sequence(node, deep=True)
     separator, input_list = info[0], info[1]
-    format = info[2] if len(info) == 3 else '{l}'
 
     def flatten(l: list) -> list:
         return sum(map(flatten, l), []) if isinstance(l, list) else [l]
 
     input_list = flatten(input_list)
-    return separator.join(value for item in input_list if (value := formatter.format(format, l=item)))
+    result = separator.join(item or '' for item in input_list)
+    return result
 
 
 def merge_constructor(loader: SafeLoader, node: Node) -> dict:
@@ -231,6 +234,8 @@ def parent_constructor(loader: SafeLoader, node: Node):
 
 _data = AttrDict()
 formatter = YamlFormatter()
+# don't use formatter.format() in constructors to evaluate fields like {example} because
+#  they may not be constructed i.e. {same_document.example}  let it occur later in user code
 add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
 add_constructor('!split', split_constructor, Loader=SafeLoader)
 add_constructor('!join', join_constructor, Loader=SafeLoader)
