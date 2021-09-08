@@ -21,7 +21,7 @@ class YamlFormatter(Formatter):
                 raise ValueError("possible self-reference in format; too many nested references, stopped after 10")
 
             # can't be any inner braces, not even escaped as {{ or }}
-            formatted = re.sub(r'{{(.*?)}}', r'&#123;&#123;\1&#125;&#125;', format_string)
+            formatted = re.sub(r'{{(.*?)}}', r'&#123;&#123;\1&#125;&#125;', format_string, flags=re.DOTALL)
 
             def escape_inner_fields(text):
                 def get_fields(text_):
@@ -41,7 +41,7 @@ class YamlFormatter(Formatter):
 
                     if depth > 0:  # leave the outermost field
                         inner_field = text[open_pos:close_pos]
-                        escaped_field = re.sub(r'{(.*?)}', r'&#123;\1&#125;', inner_field)
+                        escaped_field = re.sub(r'{(.*?)}', r'&#123;\1&#125;', inner_field, flags=re.DOTALL)
                         text = text[:open_pos] + escaped_field + text[close_pos:]
                         adjustment += len(escaped_field) - len(inner_field)
                 return text
@@ -51,15 +51,15 @@ class YamlFormatter(Formatter):
             formatted = super().vformat(formatted, args, kwargs)
 
             # restore unevaluated fields for next loop
-            while (new_formatted := re.sub(r'&#123;(.*?)&#125;', r'{\1}', formatted)) != formatted:
+            while (new_formatted := re.sub(r'&#123;(.*?)&#125;', r'{\1}', formatted, flags=re.DOTALL)) != formatted:
                 formatted = new_formatted
 
             if formatted == format_string:
-                return re.sub(r'{{(.*?)}}', r'{\1}', html.unescape(formatted))
+                return re.sub(r'{{(.*?)}}', r'{\1}', html.unescape(formatted), flags=re.DOTALL)
             format_string = formatted
 
     def get_field(self, field_name_, args, kwargs):
-        if not (m := re.match(r'(.+?)(\??[=+]|\?$)(.*)', field_name_, re.DOTALL)):
+        if not (m := re.match(r'(.+?)(\??[=+]|\?$)(.*)', field_name_, flags=re.DOTALL)):
             return super().get_field(field_name_, args, kwargs)
 
         field_name, operation, text = m.groups()
