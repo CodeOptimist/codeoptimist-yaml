@@ -7,13 +7,12 @@ from itertools import zip_longest
 from operator import attrgetter
 from pathlib import Path
 from string import Formatter
-from typing import Any, List
 
 from yaml import Node, SafeLoader, ScalarNode, add_constructor, safe_load
 
 
 class YamlFormatter(Formatter):
-    def vformat(self, format_string, args, kwargs):
+    def vformat(self, format_string, args, kwargs) -> str:
         i = 0
         while True:
             i += 1
@@ -23,8 +22,8 @@ class YamlFormatter(Formatter):
             # can't be any inner braces, not even escaped as {{ or }}
             formatted = re.sub(r'{{(.*?)}}', r'&#123;&#123;\1&#125;&#125;', format_string, flags=re.DOTALL)
 
-            def escape_inner_fields(text):
-                def get_fields(text_):
+            def escape_inner_fields(text: str) -> str:
+                def get_fields(text_: str) -> list[int, int, int]:
                     stack = []
                     for m in re.finditer(r'[{}]', text_):
                         pos = m.start()
@@ -58,7 +57,7 @@ class YamlFormatter(Formatter):
                 return re.sub(r'{{(.*?)}}', r'{\1}', html.unescape(formatted), flags=re.DOTALL)
             format_string = formatted
 
-    def get_field(self, field_name_, args, kwargs):
+    def get_field(self, field_name_, args, kwargs) -> (any, str):
         if not (m := re.match(r'(.+?)(\??[=+]|\?$)(.*)', field_name_, flags=re.DOTALL)):
             return super().get_field(field_name_, args, kwargs)
 
@@ -84,12 +83,12 @@ class YamlFormatter(Formatter):
             return obj + replaced, used_key
         raise AssertionError
 
-    def convert_field(self, value, conversion):
+    def convert_field(self, value, conversion) -> str:
         if conversion == 'e':
             return str(value).replace('{', '{{').replace('}', '}}')
         return super().convert_field(value, conversion)
 
-    def get_value(self, key, args, kwargs):
+    def get_value(self, key, args, kwargs: dict):
         if isinstance(key, str):
             kwargs.setdefault('g', _data)
             try:
@@ -100,13 +99,13 @@ class YamlFormatter(Formatter):
                 return attrgetter(key)(AttrDict({**_data, **kwargs['l']}))
         return super().get_value(key, args, kwargs)
 
-    def format_field(self, value, format_spec):
+    def format_field(self, value, format_spec) -> str:
         if value is None:
             return ''  # otherwise we get 'None'
         return super().format_field(value, format_spec)
 
 
-def attr_wrap(value: Any) -> Any:
+def attr_wrap(value: any) -> any:
     if isinstance(value, dict):
         return AttrDict(value)
     if isinstance(value, list):
@@ -115,12 +114,12 @@ def attr_wrap(value: Any) -> Any:
 
 
 class AttrDict(dict):
-    def __getattr__(self, item: Any):
+    def __getattr__(self, item: any):
         return attr_wrap(self[item])
 
 
 class AttrList(list):
-    def __getattr__(self, item: Any):
+    def __getattr__(self, item: any):
         key, is_find, value = item.partition('=')
         key, value = html.unescape(key), html.unescape(value)
 
@@ -129,7 +128,7 @@ class AttrList(list):
             return attr_wrap(result)
         return attr_wrap(self[item])
 
-    def __getitem__(self, item: Any):
+    def __getitem__(self, item: any):
         return attr_wrap(super().__getitem__(item))
 
 
@@ -137,7 +136,7 @@ class AttrList(list):
 class InsertInfo:
     sequence: list
     replace_format: str = None
-    positions: List[int] = None
+    positions: list[int] = None
 
     @staticmethod
     def insert_constructor(loader: SafeLoader, node: Node) -> list:
@@ -146,13 +145,13 @@ class InsertInfo:
             info = InsertInfo(sequence=loader.construct_object(node.value[0], deep=True))
         else:  # give all parameters in a sequence of our own
             info = InsertInfo(*loader.construct_sequence(node.value[0], deep=True))
-        current_list: List[Any] = info.sequence  # already constructed
+        current_list: list[any] = info.sequence  # already constructed
 
-        input_list: List[Any] = [loader.construct_object(n, deep=True) for n in node.value[1:]]
+        input_list: list[any] = [loader.construct_object(n, deep=True) for n in node.value[1:]]
         if info.replace_format is None and info.positions is None:
             return current_list + input_list
 
-        def item_id(item: Any, idx: int) -> int:
+        def item_id(item: any, idx: int) -> int:
             # since info.sequence is constructed it's fine to use formatter.format() on it; mappings will exist
             return idx if info.replace_format is None else formatter.format(info.replace_format, l=item)
 
@@ -205,7 +204,7 @@ def merge_constructor(loader: SafeLoader, node: Node) -> dict:
 
 
 def concat_constructor(loader: SafeLoader, node: Node) -> list:
-    input_list: List[list] = loader.construct_sequence(node, deep=True)
+    input_list: list[list] = loader.construct_sequence(node, deep=True)
     result = [item for list_ in input_list for item in list_]
     return result
 
