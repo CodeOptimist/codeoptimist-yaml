@@ -57,13 +57,27 @@ class YamlFormatter(Formatter):
                 return re.sub(r'{{(.*?)}}', r'{\1}', html.unescape(formatted), flags=re.DOTALL)
             format_string = formatted
 
+    # https://stackoverflow.com/a/62024873/879
+    def get_sliced_field(self, field_name, args, kwargs) -> (any, str):
+        slice_operator = None
+        if type(field_name) == str and '|' in field_name:
+            field_name, slice_indexes = field_name.split('|')
+            slice_indexes = (None if val == '_' else int(val) for val in slice_indexes.split(','))
+            slice_operator = slice(*slice_indexes)
+
+        obj, used_key = super().get_field(field_name, args, kwargs)
+        if slice_operator is not None:
+            obj = obj[slice_operator]
+
+        return obj, used_key
+
     def get_field(self, field_name_, args, kwargs) -> (any, str):
         if not (m := re.match(r'(.+?)(\??[=+]|\?$)(.*)', field_name_, flags=re.DOTALL)):
-            return super().get_field(field_name_, args, kwargs)
+            return self.get_sliced_field(field_name_, args, kwargs)
 
         field_name, operation, text = m.groups()
         try:
-            obj, used_key = super().get_field(field_name, args, kwargs)
+            obj, used_key = self.get_sliced_field(field_name, args, kwargs)
         except KeyError:
             if not operation.startswith('?'):
                 raise

@@ -6,6 +6,7 @@ fruit1: &fruit1
 
 fruit1_names: &fruit1_names !each [ *fruit1, 'name' ]
 fruit1_names_joined: !join [ ", ", *fruit1_names ]
+fruit1_names_sliced: !each [ *fruit1, 'name', '{l|_,3}' ]
 
 fruit2: &fruit2
   - property: &strawberry { common: 'Strawberry', scientific: 'Fragaria × ananassa' }
@@ -38,6 +39,7 @@ fruit4: !merge
 tests:
   - [ '{fruit1_names}', "['Strawberry', 'Apple', 'Banana']" ]
   - [ '{fruit1_names_joined}', 'Strawberry, Apple, Banana' ]
+  - [ '{fruit1_names_sliced}', "['Str', 'App', 'Ban']" ]
   - [ '{fruit2_scientific_joined}', 'Fragaria × ananassa, Malus domestica, Musa acuminata' ]
   - [ '{fruit3_names}', "['Strawberry', 'Apple', 'Banana', 'Pineapple']" ]
   - [ '{dog}', 'a dog named "[BRACKY]"' ]
