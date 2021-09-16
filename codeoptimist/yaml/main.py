@@ -8,7 +8,7 @@ from operator import attrgetter
 from pathlib import Path
 from string import Formatter
 
-from yaml import Node, SafeLoader, ScalarNode, add_constructor, safe_load
+from yaml import Node, SafeLoader, add_constructor, safe_load
 
 
 class YamlFormatter(Formatter):
@@ -132,98 +132,126 @@ class AttrList(list):
         return attr_wrap(super().__getitem__(item))
 
 
-@dataclass
-class InsertInfo:
-    sequence: list
-    replace_format: str = None
-    positions: list[int] = None
+def insert_constructor(loader: SafeLoader, node: Node) -> list:
+    @dataclass
+    class Info:
+        base_list: list
+        replace_format: str = None
+        positions: list[int] = None
 
-    @staticmethod
-    def insert_constructor(loader: SafeLoader, node: Node) -> list:
-        # short form, just give the target sequence
-        if isinstance(node.value[0], ScalarNode):
-            info = InsertInfo(sequence=loader.construct_object(node.value[0], deep=True))
-        else:  # give all parameters in a sequence of our own
-            info = InsertInfo(*loader.construct_sequence(node.value[0], deep=True))
-        current_list: list[any] = info.sequence  # already constructed
+    # info is first element of !insert sequence
+    info = Info(*loader.construct_sequence(node.value[0], deep=True))
+    if not info.base_list:
+        info.base_list = loader.construct_sequence(node.value[0].value[0], deep=True)
 
-        input_list: list[any] = [loader.construct_object(n, deep=True) for n in node.value[1:]]
-        if info.replace_format is None and info.positions is None:
-            return current_list + input_list
+    input_list = [loader.construct_object(n, deep=True) for n in node.value[1:]]
+    if info.replace_format is None and info.positions is None:
+        return info.base_list + input_list
 
-        def item_id(item: any, idx: int) -> int:
-            # since info.sequence is constructed it's fine to use formatter.format() on it; mappings will exist
-            return idx if info.replace_format is None else formatter.format(info.replace_format, l=item)
+    def item_id(item: any, idx: int) -> int:
+        # since info.current_list is constructed it's fine to use formatter.format() on it; mappings will exist
+        return idx if info.replace_format is None else formatter.format(info.replace_format, l=item)
 
-        # ordered
-        result_dict = {item_id(item, idx): item for idx, item in enumerate(current_list)}
-        input_dict = {item_id(item, idx + len(result_dict)): item for idx, item in enumerate(input_list)}
+    # ordered
+    result_dict = {item_id(item, idx): item for idx, item in enumerate(info.base_list)}
+    input_dict = {item_id(item, idx + len(result_dict)): item for idx, item in enumerate(input_list)}
 
-        to_pos = {}
-        to_end = []
-        for input_pos, (input_id, input_item) in zip_longest(info.positions or [], input_dict.items()):
-            if input_pos is not None:
-                result_dict.pop(input_id, None)
-                to_pos[input_pos] = input_item
-            elif input_id in result_dict:
-                result_dict[input_id] = input_item
-            else:
-                to_end.append(input_item)
+    to_pos = {}
+    to_end = []
+    for input_pos, (input_id, input_item) in zip_longest(info.positions or [], input_dict.items()):
+        if input_pos is not None:
+            result_dict.pop(input_id, None)
+            to_pos[input_pos] = input_item
+        elif input_id in result_dict:
+            result_dict[input_id] = input_item
+        else:
+            to_end.append(input_item)
 
-        result_list = list(result_dict.values()) + to_end
-        for item in sorted(to_pos):
-            result_list.insert(item, to_pos[item])
-        return result_list
+    result_list = list(result_dict.values()) + to_end
+    for item in sorted(to_pos):
+        result_list.insert(item, to_pos[item])
+    return result_list
 
 
-def split_constructor(loader: SafeLoader, node: Node):
-    assert isinstance(node.value[1], ScalarNode), type(node.value[1])
-    info = loader.construct_sequence(node, deep=True)
-    separator, input_str = info[0], info[1]
-
+def split_constructor(loader: SafeLoader, node: Node) -> list[str]:
+    # info is !split sequence (all scalars)
+    info: list = loader.construct_sequence(node, deep=True)
+    separator: str = info[0]
+    input_str: str = info[1]
     return input_str.split(separator)
 
 
 def join_constructor(loader: SafeLoader, node: Node) -> str:
-    info = loader.construct_sequence(node, deep=True)
-    separator, input_list = info[0], info[1]
+    @dataclass
+    class Info:
+        separator: str
+        input_list: list
+
+    # info is !join sequence
+    info = Info(*loader.construct_sequence(node, deep=True))
+    if not info.input_list:
+        info.input_list = loader.construct_sequence(node.value[1], deep=True)
 
     def flatten(l: list) -> list:
         return sum(map(flatten, l), []) if isinstance(l, list) else [l]
 
-    input_list = flatten(input_list)
-    result = separator.join(item or '' for item in input_list)
+    result = info.separator.join(item or '' for item in flatten(info.input_list))
     return result
 
 
 def merge_constructor(loader: SafeLoader, node: Node) -> dict:
     input_dict: dict = loader.construct_mapping(node, deep=True)
-    base_dict = input_dict.pop('<')
+    base_dict: dict = input_dict.pop('<')
     merged = {**base_dict, **input_dict}
     return merged
 
 
 def concat_constructor(loader: SafeLoader, node: Node) -> list:
-    input_list: list[list] = loader.construct_sequence(node, deep=True)
-    result = [item for list_ in input_list for item in list_]
+    input_list: list = loader.construct_sequence(node, deep=True)
+    result = []
+    for idx, list_ in enumerate(input_list):
+        result += list_ or loader.construct_sequence(node.value[idx], deep=True)
     return result
 
 
 def each_constructor(loader: SafeLoader, node: Node) -> list:
-    input_list, attr, is_required = loader.construct_sequence(node, deep=True)
+    @dataclass
+    class Info:
+        input_list: list
+        attr: str
+        format_str: str = None
+        is_required: bool = False
+
+    # info is !each sequence
+    info = Info(*loader.construct_sequence(node, deep=True))
+    if not info.input_list:
+        info.input_list = loader.construct_sequence(node.value[0], deep=True)
+
     result = []
-    for item in input_list:
-        try:
-            result.append(attrgetter(attr)(attr_wrap(item)))
-        except KeyError:
-            if is_required:
-                raise
+    for item in info.input_list:
+        if isinstance(item, dict):
+            try:
+                item = attrgetter(info.attr)(attr_wrap(item))
+            except KeyError:
+                if info.is_required:
+                    raise
+        if info.format_str:
+            item = formatter.format(info.format_str, l=item)
+        result.append(item)
     return result
 
 
 def get_constructor(loader: SafeLoader, node: Node):
-    input_list, attr = loader.construct_sequence(node, deep=True)
-    return attrgetter(attr)(attr_wrap(input_list))
+    @dataclass
+    class Info:
+        input_list: list
+        attr: str
+
+    # info is !get sequence
+    info = Info(*loader.construct_sequence(node, deep=True))
+    if not info.input_list:
+        info.input_list = loader.construct_sequence(node.value[0], deep=True)
+    return attrgetter(info.attr)(attr_wrap(info.input_list))
 
 
 def parent_constructor(loader: SafeLoader, node: Node):
@@ -235,7 +263,7 @@ _data = AttrDict()
 formatter = YamlFormatter()
 # don't use formatter.format() in constructors to evaluate fields like {example} because
 #  they may not be constructed i.e. {same_document.example}  let it occur later in user code
-add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
+add_constructor('!insert', insert_constructor, Loader=SafeLoader)
 add_constructor('!split', split_constructor, Loader=SafeLoader)
 add_constructor('!join', join_constructor, Loader=SafeLoader)
 add_constructor('!merge', merge_constructor, Loader=SafeLoader)
@@ -262,3 +290,14 @@ def load(yaml_path: Path):
             except Exception as e:
                 raise Exception(f"Loading error in: {yaml_path}") from e
     return _data
+
+
+def main() -> None:
+    path = Path(__file__).parent.parent.parent / r'tests.yaml'
+    g: AttrDict = load(path)
+    for pre, post in g.tests:
+        assert (result := formatter.format(pre)) == post, (pre, post, result)
+
+
+if __name__ == '__main__':
+    main()
