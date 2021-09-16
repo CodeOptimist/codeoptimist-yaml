@@ -13,6 +13,7 @@ fruit2: &fruit2
   - property: { common: 'Apple', scientific: 'Malus domestica' }
   - property: { common: 'Banana', scientific: 'Musa acuminata' }
 
+fruit2_property: !each [ *fruit2, 'property' ]
 fruit2_scientific_joined: !join [ ", ", !each [ *fruit2, 'property.scientific' ] ]
 
 fruit3: &fruit3 !insert
@@ -51,3 +52,5 @@ tests:
   - [ '{matrix}', '[1, 2, 3, 4, 5, 6, 7, 8, 9]' ]
   - [ '{fruit4!e}', "{'common': 'Strawberry', 'scientific': 'Fragaria × ananassa', 'color': 'red'}" ]
   - [ '{float_matrix}', "['1.000', '2.000', '3.000', '4.000', '5.000', '6.000', '7.000', '8.000', '9.000']" ]
+  - [ '{fruit1.name^Apple!e}', "{'name': 'Apple'}" ]
+  - [ '{fruit2_property.common^Banana!e}', "{'common': 'Banana', 'scientific': 'Musa acuminata'}" ]

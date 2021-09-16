@@ -134,7 +134,7 @@ class AttrDict(dict):
 
 class AttrList(list):
     def __getattr__(self, item: any):
-        key, is_find, value = item.partition('=')
+        key, is_find, value = item.partition('^')
         key, value = html.unescape(key), html.unescape(value)
 
         if is_find:
