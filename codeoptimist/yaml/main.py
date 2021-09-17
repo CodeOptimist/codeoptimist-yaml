@@ -145,6 +145,14 @@ class InsertInfo:
         return result_list
 
 
+def split_constructor(loader: SafeLoader, node: Node):
+    assert isinstance(node.value[1], ScalarNode), type(node.value[1])
+    info = loader.construct_sequence(node, deep=True)
+    separator, input_str = info[0], info[1]
+
+    return input_str.split(separator)
+
+
 def join_constructor(loader: SafeLoader, node: Node) -> str:
     info = loader.construct_sequence(node, deep=True)
     separator, input_list = info[0], info[1]
@@ -195,6 +203,7 @@ def parent_constructor(loader: SafeLoader, node: Node):
 _data = AttrDict()
 formatter = YamlFormatter()
 add_constructor('!insert', InsertInfo.insert_constructor, Loader=SafeLoader)
+add_constructor('!split', split_constructor, Loader=SafeLoader)
 add_constructor('!join', join_constructor, Loader=SafeLoader)
 add_constructor('!merge', merge_constructor, Loader=SafeLoader)
 add_constructor('!concat', concat_constructor, Loader=SafeLoader)
